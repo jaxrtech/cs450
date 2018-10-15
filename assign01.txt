@@ -271,6 +271,17 @@ Joshua Bowden (A20374650)
 
    (a) How much user-mode pages are allocated to the first process at this point? (Indicate the physical page base addresses in your listing, and be sure to show how you obtain the values.)
 
-        
+        We can find out the number of pages that were allocated for the process by lookign at,
+
+        ```
+        (gdb) p curproc->sz / 4096
+        $12 = 3
+        ```
+
+        to see that there were 3 of the 4096-byte user-mode pages allocated for the process.
+
+        This is due to the call to `allocuvm()` within `exec()` in `exec.c:52`.
+        In `vm.c` within `alloc()` on line 222, given that the new process starts with 0 bytes of memory, the loop on line 233, will continue for `curproc-> / PGSIZE` times where PGSIZE is 4096 bytes as defined in `mmu.h:85`.  
+
 
    (b) Show the first dozen instructions of the user process. (You do not need to annotate the instructions themselves.)
