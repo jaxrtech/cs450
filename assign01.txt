@@ -1,0 +1,276 @@
+
+CS 450
+Machine Problem 1
+
+Joshua Bowden (A20374650)
+
+---
+
+ # Exercise 1. 
+
+ (a) What is its value? Break it down per the relevant Intel manual specification.
+
+    1. Set breakpoint on line 26 in 'trap.c'. Use `b trap.c:26` in GDB
+
+    2. Continue and until the breakpoint is hit. Use `c` and keep using `s` in GDB until you see:
+
+       ```
+       (gdb) c                                                                            
+       Continuing.                                                                        
+       The target architecture is assumed to be i386                                      
+       => 0x80105449 <tvinit+89>:      movl   $0x80107399,0x4(%esp)                       
+                                                                                          
+       Breakpoint 1, tvinit () at trap.c:26                                               
+       26        initlock(&tickslock, "time");                                            
+       (gdb) s                                                                            
+       => 0x80105458 <tvinit+104>:     mov    %dx,0x80114ea2                              
+       24        SETGATE(idt[T_SYSCALL], 1, SEG_KCODE<<3, vectors[T_SYSCALL], DPL_USER);  
+       (gdb) s                                                                            
+       => 0x8010547c <tvinit+140>:     call   0x80104080 <initlock>                       
+       26        initlock(&tickslock, "time");                                            
+       ```
+
+    2. Examine the value of the address of the variable `idt` at the `T_SYSCALL` trap vector. The index is 64 in the `idt` array as defined in `traps.h`.
+
+       Recall that `sizeof(struct gatedesc)` is 8 bytes so we'll examine the memory using the `w` flag to display as two 32-bit words to coincide with the Intel IA-32 System Programming Guide[1] on page 195. Verify using `p sizeof(struct gatedesc)` with GDB.
+
+       Use `x /2xw idt + 64` in GDB to display the memory dump.
+       ```
+       0x80114ea0 <idt+512>:   0x00085a96      
+                                 bits  0-15: (0x5a96): specifies the bottom 16 
+                                                       bits of the address of trap
+                                                       handler
+                                 bits 16-31: (0x0008): specifies the code segment 
+                                                       selector of the trap 
+                                                       handler address
+
+       0x80114ea1 <idt+516>:   0x8010ef00
+                                 bits    0-3: ( 0b000): reserved by Intel
+                                 bits    5-7: ( 0b000): reserved by Intel
+                                 bits   8-10: ( 0b111): gate type: 0b111 = trap gate
+                                 bits     11: (   0x1): specifies the size of the 
+                                                        interrupt gate: 1 = 32 bits
+                                 bits     12: (   0x0): reserved by Intel
+                                 bits  13-14: (   0x3): specifies the DPL: 3 = user
+                                 bits     15: (   0x1): specifies if the segment is 
+                                                        present: 1 = enabled
+                                 bits  16-31: (0x8010): specifies the top 16 
+                                                        bits of the address of
+                                                        the interrupt handler
+       ```
+
+       Hence the address of the interrupt handler is at 0x801005a96:
+
+       ```
+       (gdb) x /4i 0x80105a96
+          0x80105a96 <vector64>:       push   $0x0
+          0x80105a98 <vector64+2>:     push   $0x40
+          0x80105a9a <vector64+4>:     jmp    0x801053cd <alltraps>
+          0x80105a9f <vector65>:       push   $0x0
+       ```
+
+       which is the same asm code from trapasm.S:318 which jumps to `alltraps`.
+
+    5. Similarly, using `p idt[64]` in GDB will display the struct with the 
+       corresponding bit fields:
+       ```
+       {off_15_0 = 23190, cs = 8, args = 0, rsv1 = 0, type = 14, s = 0, dpl = 0, p = 1, off_31_16 = 32784}
+       ```
+
+ (b) What differentiates it from other gate entries?
+
+     Compared to other gate entries, it's a trap gate instead of an interrupt gate and can be called from user mode since the DPL of the trap gate is set to 3.
+
+---
+
+ # Exercise 2.
+
+ (a) What system call is about to be executed? (Explain how you know this.) 
+
+   1. Set breakpoint on line 137 in 'syscall.c'. Use `b syscall.c:137` in GDB
+
+   2. Continue and until the breakpoint is hit. Use `c` and then `s` in GDB until you get to line 138:
+
+      ```
+      Breakpoint 1 at 0x8010467d: file syscall.c, line 137.
+      (gdb) c
+      Continuing.
+      The target architecture is assumed to be i386
+      => 0x8010467d <syscall+13>:     mov    0x18(%eax),%esi   
+      Breakpoint 1, syscall () at syscall.c:137
+      137       num = curproc->tf->eax;
+      (gdb) s
+      => 0x80104680 <syscall+16>:     mov    %eax,%ebx
+      135       struct proc *curproc = myproc();
+      (gdb) s
+      => 0x80104682 <syscall+18>:     mov    0x1c(%esi),%eax
+      137       num = curproc->tf->eax;
+      (gdb) s
+      => 0x80104685 <syscall+21>:     lea    -0x1(%eax),%edx
+      138       if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
+      ```
+
+   3. Inspect `num` now that is has been set from `curproc->tf->eax` which is the state of the `EAX` register before the trap interrupt was invoked. Use `p num` in GDB.
+
+      ```
+      (gdb) p num
+      $1 = 7
+      ```
+
+   4. In this case syscall of 7, is `sys_exec`. This can be determined by looking at `syscall.h` or by using `p syscalls[7]` in GDB:
+
+      ```
+      (gdb) p syscalls[7]
+      $2 = (int (* const)(void)) 0x80105090 <sys_exec>
+      ```
+
+ (b) List and document the full contents of the allocated portion of the kernel stack at this juncture. (Hint: the proc structure's kstack component points to the bottom of the stack area, and KSTACKSIZE is its size.)
+
+   ```
+   0x8dfff000:     0x8dffe000      0x01010101      0x01010101      0x01010101     
+   0x8dfff010:     0x01010101      0x01010101      0x01010101      0x01010101     
+   ...
+   0x8dfffdd0:     0x01010101      0x01010101      0x01010101      0x01010101
+   0x8dfffde0:     0x01010101      0x01010101      0x01010101      0x01010101
+   0x8dfffdf0:     0x01010101      0x01010101      0x01010101      0x01010101
+   0x8dfffe00:     0x8dfffe20      0x80103624      0x01010101      0x01010101
+   0x8dfffe10:     0x8dfffe30      0x80103624      0x80112780      0x00000001
+   0x8dfffe20:     0x8dfffe40      0x8010416a      0x00000082      0x00000000
+   0x8dfffe30:     0x8dfffe50      0x80103624      0x80112780      0x00000000
+   0x8dfffe40:     0x8dfffe60      0x80103624      0x8dfffeec      0x8dfffe6c
+   0x8dfffe50:     0x80103624      0x80103624      0x80112d54      0x8dfffe7c
+   0x8dfffe60:     0x80103624      0x80112d20      0x00000000      0x8dfffe8c
+   0x8dfffe70:     0x80103624      0x00000086      0x00000000      0x8dfffe9c
+   0x8dfffe80:     0x80103624      0x80112780      0x00000001      0x8dfffeac
+   0x8dfffe90:     0x80103624      0x00000082      0x00000000      0x8dfffebc
+   0x8dfffea0:     0x80103624      0x8010b5c0      0x00000000      0x8dfffecc
+   0x8dfffeb0:     0x80103624      0x00000082      0x00000000      0x8dfffedc
+   0x8dfffec0:     0x80103624      0x80112780      0x00000001      0x8dfffeec
+   0x8dfffed0:     0x8010416a      0x00000086      0x00000000      0x8dfffefc
+   0x8dfffee0:     0x80103624      0x80112780      0x8dffff08      0x80103624
+   0x8dfffef0:     0x801041dc      0x00000000      0x8dffff18      0x80103624
+   0x8dffff00:     0x80112d54      0x00000000      0x8dffff28      0x8010417d
+   0x8dffff10:     0x00000200      0x00000000      0x8dffff28      0x8010412f
+   0x8dffff20:     0x8dffffb4      0x00000000      0x8dffff38      0x801036cc
+   0x8dffff30:     0x00000200      0x8dffffb4      0x8dffff58      0x8010467d
+   0x8dffff40:     0x8dffffb4      0x00000000      0x8dffff58      0x801036cc
+   0x8dffff50:     0x8dffffb4      0x00000000      0x8dffffa8      0x80105699
+   0x8dffff60:     0x8010151c      0x80106d78      0x000003e8      0x000003ad
+   0x8dffff70:     0x000000c8      0x0000001e      0x00000002      0x00000020
+   0x8dffff80:     0x0000003a      0x00000000      0x00000000      0x8dffffac
+   0x8dffff90:     0x801035e2      0x00000001      0x01010101      0x00000000
+   0x8dffffa0:     0x00000000      0x00000000      0x00000000      0x801053e2
+   0x8dffffb0:     0x8dffffb4      0x00000000      0x00000000      0x00000000
+   0x8dffffc0:     0x8dffffd4      0x00000000      0x00000000      0x00000000
+   0x8dffffd0:     0x00000007      0x00000000      0x00000000      0x00000023
+   0x8dffffe0:     0x00000023      0x00000040      0x00000000      0x00000013
+   0x8dfffff0:     0x0000001b      0x00000202      0x00000ff4      0x00000023
+   ```
+
+---
+
+ # Exercise 3.
+
+ Stop execution at the first call to `swtch`.
+
+ (a) What are the top three words on the kernel stack at this point?
+
+   1.  Use `b swtch` to stop at the call to `swtch`.
+       ```
+       (gdb) b swtch
+       Breakpoint 1 at 0x801044eb: file swtch.S, line 11.
+       ```
+
+   2.  Examine the memory on the kernel stack using GDB
+       
+       (i) 1st word
+
+           ```
+           (gdb) x /w (int *)$esp - 0
+           0x8010b54c <stack+3980>:        0x801039e0
+    
+    
+           We can see that the 1st (or 0th) word on the stack points to the return address from the `swtch()` function call.
+    
+           ```
+           (gdb) x /4i 0x801039e0 - 8
+              0x801039d8 <scheduler+104>:  inc    %esp
+              0x801039d9 <scheduler+105>:  and    $0x4,%al
+              0x801039db <scheduler+107>:  call   0x801044eb <swtch>      <- function call
+              0x801039e0 <scheduler+112>:  call   0x80106550 <switchkvm>  <- return address
+           ```
+
+
+       (ii) 2nd word
+
+            We can inspect the second word on the stack using:
+     
+            ```
+            (gdb) x /w (int*)$esp - 1
+            0x8010b548 <stack+3976>:        0x8010b578
+            ```
+     
+            As well, we expect the 2rd word on the stack to be the 2st argument to the `swtch()` function call, namely `p->context` from proc.c:348 which is `swtch(&(c->scheduler), p->context);`.
+
+            This is in particular the processes saved context on the stack.
+
+            ```
+            (gdb) p *(struct context *) 0x8010b578
+            $14 = {edi = 2148578712, esi = 2148543956, ebx = 2148561124, ebp = 0, eip = 0}
+            ```
+
+       (ii) 3rd word
+
+            We can inspect the third word on the stack using:
+     
+            ```       
+            (gdb) x /w (int *)$esp - 2
+            0x8010b54a <stack+3978>:        0x80112784
+            ```
+
+            Given the C standard, we expect the 3nd word on the stack to be the 1st argument to the `swtch()` function call, namely `&(c->scheduler)` from proc.c:348 which is `swtch(&(c->scheduler), p->context);`.
+     
+            We can verify this by inspecting the address:
+            ```
+            (gdb) p &cpus[0]->scheduler
+            $7 = (struct context **) 0x80112784 <cpus+4>
+            ```
+     
+            > Side note: the current cpu index can be found by using the following (hence index 0):
+            > ```
+            > (gdb) p cpuid()
+            > => 0x8010b53f <stack+3967>:     int3
+            > $8 = 0
+            > ```
+
+---
+
+ # Exercise 4.
+
+   Stop execution right after the first system call handler returns (hint: step over the appropriate line in syscall).
+
+    1. Set a breakpoint in `syscall.c` where the actual system call handler runs.
+       ```
+       (gdb) b syscall.c:139                                                   
+       Breakpoint 1 at 0x80104698: file syscall.c, line 139.      
+       ```
+
+    2. Continue and then step over using 'n',
+        ```   
+        (gdb) c                                                                 
+        Continuing.                                                             
+        The target architecture is assumed to be i386                           
+        => 0x80104698 <syscall+40>:     call   *%edx                            
+                                                                                
+        Breakpoint 1, syscall () at syscall.c:139                               
+        139         curproc->tf->eax = syscalls[num]();                         
+        (gdb) n                                                                 
+        => 0x8010469d <syscall+45>:     add    $0x10,%esp                       
+        145     } 
+        ```                                                          
+
+   (a) How much user-mode pages are allocated to the first process at this point? (Indicate the physical page base addresses in your listing, and be sure to show how you obtain the values.)
+
+        
+
+   (b) Show the first dozen instructions of the user process. (You do not need to annotate the instructions themselves.)
