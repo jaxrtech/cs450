@@ -16,3 +16,5 @@ mkfs
 .gdbinit
 .vagrant
 TAGS
+cmake-build-debug/
+.idea/
