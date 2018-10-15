@@ -14,5 +14,8 @@ Vagrant.configure("2") do |config|
     vb.customize ["modifyvm", :id, "--memory", "1024"]
   end
 
+  # Forward the gdb port for remote debugging
+  config.vm.network "forwarded_port", guest: 26000, host: 26000
+
   config.vm.provision :shell, path: "vagrantprov.sh"
 end
