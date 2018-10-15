@@ -285,3 +285,82 @@ Joshua Bowden (A20374650)
 
 
    (b) Show the first dozen instructions of the user process. (You do not need to annotate the instructions themselves.)
+
+       The first 12 instructions of the user `init` process can be found by looking at the contents of the first page frame by dereferencing the process's page directory, then dereferncing the first page table, and then inspecting the first page frame of that page table.
+
+       After `sys_exec()` finishes, and returns to line 145 in `syscall.c`, we can inspect `curproc->pgdir` to get the address of the page directory entry.
+
+       First, we find the location of address of the page directory of the current process:
+
+       ```
+       (gdb) x /w curproc->pgdir
+       0x8dfbb000:     0x0df79007
+       ```
+
+       To dereference the address to the first page table, we must get the top bits 31-12 for the address of the page table (see Intel Systems Programming Guide, pg. 112 for "PDE: page table"). We do this by using the bitmask of `0xfffff000`.  We can see that this is also a pointer to physical memory, so to dereference it, we add `0x80000000` to translate the address to virtual memory.
+
+       ```
+       (gdb) set $pte = ((*curproc->pgdir) & 0xfffff000) + 0x80000000
+       (gdb) x /w $pte
+       0x8df79000:     0x0df7a007
+       ```
+
+       Now we are at the address of the first page table entry.
+
+       In a similar fashion, we apply the same bitmask for bits 31-12 using `0xfffff000` (see pg. 112 again for "PTE: 4KB page"). And convert from a physical address to a virtual address by adding `0x80000000`.
+
+       ```
+       (gdb) x /12i (*($pte) & 0xfffff000) + 0x80000000
+       0x8df7a000:  push   %ebp
+       0x8df7a001:  mov    %esp,%ebp
+       0x8df7a003:  push   %ebx
+       0x8df7a004:  and    $0xfffffff0,%esp
+       0x8df7a007:  sub    $0x10,%esp
+       0x8df7a00a:  movl   $0x2,0x4(%esp)
+       0x8df7a012:  movl   $0x7e6,(%esp)
+       0x8df7a019:  call   0x8df7a372
+       0x8df7a01e:  test   %eax,%eax
+       0x8df7a020:  js     0x8df7a0d2
+       0x8df7a026:  movl   $0x0,(%esp)
+       0x8df7a02d:  call   0x8df7a3aa
+       ```
+
+       We can see that this is the same output as `init.asm` in the xv6 folder.
+
+       ```
+
+       _init:     file format elf32-i386
+       
+       
+       Disassembly of section .text:
+       
+       00000000 <main>:
+       
+       char *argv[] = { "sh", 0 };
+       
+       int
+       main(void)
+       {
+          0:   55                      push   %ebp
+          1:   89 e5                   mov    %esp,%ebp
+          3:   53                      push   %ebx
+          4:   83 e4 f0                and    $0xfffffff0,%esp
+          7:   83 ec 10                sub    $0x10,%esp
+         int pid, wpid;
+       
+         if(open("console", O_RDWR) < 0){
+          a:   c7 44 24 04 02 00 00    movl   $0x2,0x4(%esp)
+         11:   00 
+         12:   c7 04 24 e6 07 00 00    movl   $0x7e6,(%esp)
+         19:   e8 54 03 00 00          call   372 <open>
+         1e:   85 c0                   test   %eax,%eax
+         20:   0f 88 ac 00 00 00       js     d2 <main+0xd2>
+           mknod("console", 1, 1);
+           open("console", O_RDWR);
+         }
+         dup(0);  // stdout
+         26:   c7 04 24 00 00 00 00    movl   $0x0,(%esp)
+         2d:   e8 78 03 00 00          call   3aa <dup>
+         
+        (snipped)
+        ```
