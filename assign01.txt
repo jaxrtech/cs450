@@ -1,4 +1,4 @@
-
+28/32
 CS 450
 Machine Problem 1
 
@@ -114,7 +114,7 @@ Joshua Bowden (A20374650)
 
       ```
       (gdb) p num
-      $1 = 74
+      $1 = 7
       ```
 
    4. In this case syscall of 7, is `sys_exec`. This can be determined by looking at `syscall.h` or by using `p syscalls[7]` in GDB:
@@ -127,7 +127,8 @@ Joshua Bowden (A20374650)
  (b) List and document the full contents of the allocated portion of the kernel stack at this juncture. (Hint: the proc structure's kstack component points to the bottom of the stack area, and KSTACKSIZE is its size.)
 
    Note that since `KSTACKSIZE` (param.h:2) is 4096 bytes, we will display 812 words (4096 bytes / 4 bytes per word) where the zeros are snipped out.
-
+<-------------Not correct, you should check which  part is allocated, you should use kstack and esp
+to decide it. then to print it out.(-4)
    ```
    (gdb) x /812w *curproc->kstack
    0x0:    0x00002468 
