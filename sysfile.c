@@ -443,3 +443,19 @@ sys_pipe(void)
   fd[1] = fd1;
   return 0;
 }
+
+int
+sys_getcount(void)
+{
+  int syscall;
+
+  if (argint(0, &syscall) < 0) {
+    return -1;
+  }
+
+  if (syscall < 1 || syscall > SYS_MAX) {
+    return -1;
+  }
+
+  return myproc()->syscall_counter[syscall];
+}

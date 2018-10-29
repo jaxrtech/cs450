@@ -24,6 +24,9 @@ char* sbrk(int);
 int sleep(int);
 int uptime(void);
 
+// mp2
+int getcount(int);
+
 // ulib.c
 int stat(const char*, struct stat*);
 char* strcpy(char*, const char*);
