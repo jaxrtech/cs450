@@ -8,7 +8,7 @@ int
 main(int argc, char *argv[])
 {
   int a = 42;
-  void *bad = (void*) 0x99999999;
+  void *bad = (void *) 0x99999999;
 
   printf(1, "[global]  (virt) &foo = 0x%p, (phys) &foo = 0x%p\n", &foo, v2paddr(&foo));
   printf(1, "[fn]      (virt) &main = 0x%p, (phys) &main = 0x%p\n", &main, v2paddr(&main));
