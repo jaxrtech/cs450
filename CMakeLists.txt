@@ -25,6 +25,7 @@ add_executable(xv6
         fs.c
         fs.h
         getcount.c
+        v2ptest.c
         grep.c
         ide.c
         init.c

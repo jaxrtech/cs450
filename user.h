@@ -26,6 +26,7 @@ int uptime(void);
 
 // mp2
 int getcount(int);
+void* v2paddr(void*);
 
 // ulib.c
 int stat(const char*, struct stat*);

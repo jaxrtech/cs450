@@ -23,4 +23,6 @@
 
 // mp2
 #define SYS_getcount 22
-#define SYS_MAX SYS_getcount
+#define SYS_v2paddr  23
+
+#define SYS_MAX SYS_v2paddr

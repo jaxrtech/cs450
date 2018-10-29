@@ -15,6 +15,7 @@
 #include "sleeplock.h"
 #include "file.h"
 #include "fcntl.h"
+#include "memlayout.h"
 
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
@@ -458,4 +459,32 @@ sys_getcount(void)
   }
 
   return myproc()->syscall_counter[syscall];
+}
+
+
+int
+sys_v2paddr(void)
+{
+  void *vaddr;
+
+  pde_t *pgdir;
+  pde_t *pde;
+  pte_t *pgtab;
+  pte_t *pte;
+
+  if (argptr(0, (void*)&vaddr, sizeof(vaddr)) < 0) {
+    return -1;
+  }
+
+  pgdir = myproc()->pgdir;
+
+  pde = &pgdir[PDX(vaddr)];
+  if(*pde & PTE_P){
+    pgtab = (pte_t*)P2V(PTE_ADDR(*pde));
+  } else {
+    return -1;
+  }
+
+  pte = &pgtab[PTX(vaddr)];
+  return V2P(PTE_ADDR(pte) | PTE_FLAGS(vaddr));
 }
