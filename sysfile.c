@@ -470,21 +470,31 @@ sys_v2paddr(void)
   pde_t *pgdir;
   pde_t *pde;
   pte_t *pgtab;
-  pte_t *pte;
+  pte_t pte;
 
   if (argptr(0, (void*)&vaddr, sizeof(vaddr)) < 0) {
     return -1;
   }
 
+  // get current process's page directory
   pgdir = myproc()->pgdir;
 
+  // attempt to get the page directory from the virtual address
   pde = &pgdir[PDX(vaddr)];
+
+  // check if if the page table is currently allocated ("present")
+  // if so, get the address of the page table in virtual memory
+  // otherwise not a valid address since the page is unmapped
   if(*pde & PTE_P){
     pgtab = (pte_t*)P2V(PTE_ADDR(*pde));
   } else {
     return -1;
   }
 
-  pte = &pgtab[PTX(vaddr)];
-  return V2P(PTE_ADDR(pte) | PTE_FLAGS(vaddr));
+  // get the page table entry within the page table
+  pte = pgtab[PTX(vaddr)];
+
+  // calculate the physical address by calculating the offset from the
+  // virtual address within the page
+  return PTE_ADDR(pte) | PTE_FLAGS(vaddr);
 }
