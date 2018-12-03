@@ -1,6 +1,10 @@
 struct stat;
 struct rtcdate;
 
+//
+// DO NOT FORGET TO UPDATE `usys.S`
+//
+
 // system calls
 int fork(void);
 int exit(void) __attribute__((noreturn));
@@ -24,9 +28,13 @@ char* sbrk(int);
 int sleep(int);
 int uptime(void);
 
-// mp2
+// syscalls - mp2
 int getcount(int);
 void* v2paddr(void*);
+
+// syscalls - mp4
+int thread_create(void (*tmain)(void *), void *stack, void *arg);
+int thread_join(void **stack);
 
 // ulib.c
 int stat(const char*, struct stat*);

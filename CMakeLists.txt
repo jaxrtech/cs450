@@ -26,6 +26,7 @@ add_executable(xv6
         fs.h
         getcount.c
         v2ptest.c
+        pctest.c
         grep.c
         ide.c
         init.c
@@ -52,6 +53,7 @@ add_executable(xv6
         printf.c
         proc.c
         proc.h
+        thread.h
         rm.c
         sh.c
         sleeplock.c

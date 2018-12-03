@@ -1,0 +1,4 @@
+
+#define THREAD_STACK_SIZE (4096)
+
+#define THREAD_STACK(STACK)  (((char *) STACK) + THREAD_STACK_SIZE)

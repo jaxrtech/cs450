@@ -36,6 +36,12 @@ struct context {
 
 enum procstate { UNUSED, EMBRYO, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
+struct thread {
+  void (*tmain)(void *);
+  void *stack;
+  void *arg;
+};
+
 // Per-process state
 struct proc {
   uint sz;                     // Size of process memory (bytes)
@@ -54,6 +60,9 @@ struct proc {
 
   // mp2
   int syscall_counter[SYS_MAX];
+
+  // mp4
+  struct thread *thread;
 };
 
 // Process memory is laid out contiguously, low addresses first:

@@ -6,6 +6,8 @@
 #include "x86.h"
 #include "proc.h"
 #include "spinlock.h"
+#include "traps.h"
+#include "thread.h"
 
 struct {
   struct spinlock lock;
@@ -114,6 +116,9 @@ found:
 
   // mp2
   memset(p->syscall_counter, 0, sizeof p->syscall_counter);
+
+  // mp4
+  p->thread = 0;
 
   return p;
 }
@@ -415,6 +420,7 @@ forkret(void)
   // Return to "caller", actually trapret (see allocproc).
 }
 
+
 // Atomically release lock and sleep on chan.
 // Reacquires lock when awakened.
 void
@@ -535,3 +541,120 @@ procdump(void)
     cprintf("\n");
   }
 }
+
+
+int
+thread_create(void (*tmain)(void *), void *stack, void *arg)
+{
+  int i, pid;
+  struct proc *np;
+  struct proc *curproc = myproc();
+  void *sp;
+//  void *sp;
+
+  // Allocate a new process (e.g. thread)
+  if ((np = allocproc()) == 0) {
+    return -1;
+  }
+
+  // Allocate thread context on stack
+  if((np->thread = (void *) kalloc()) == 0) {
+    return -1;
+  }
+  np->thread->tmain = tmain;
+  np->thread->stack = stack;
+  np->thread->arg = arg;
+
+  // Use the same pages as the current process
+  np->pgdir = curproc->pgdir;
+  np->sz = curproc->sz;
+  np->parent = curproc;
+
+  // Copy current trap frame
+  *np->tf = *curproc->tf;
+
+  // Jump to thread main
+  np->tf->eip = (uint) tmain;
+
+  // Push first argument on stack (cdecl)
+  sp = stack;
+  sp -= sizeof(arg);
+  *(uint *)sp = (uint) arg;
+
+  // Push placeholder return value
+  sp -= sizeof(uint);
+  *(uint *)sp = 0xDEADBEEF;
+
+  // Set user allocated stack
+  np->tf->esp = (uint) sp;
+  np->tf->ebp = (uint) (stack - THREAD_STACK_SIZE);
+
+  // Copy all currently open files
+  for (i = 0; i < NOFILE; i++) {
+    if (curproc->ofile[i]) {
+      np->ofile[i] = filedup(curproc->ofile[i]);
+    }
+  }
+  np->cwd = idup(curproc->cwd);
+
+  safestrcpy(np->name, curproc->name, sizeof(curproc->name));
+  pid = np->pid;
+
+  acquire(&ptable.lock);
+  np->state = RUNNABLE;
+  release(&ptable.lock);
+
+  return pid;
+}
+
+// Wait for a child process to exit and return its pid.
+// Return -1 if this process has no children.
+int
+thread_join(void **stack)
+{
+  struct proc *p;
+  int havekids, pid;
+  struct proc *curproc = myproc();
+
+  acquire(&ptable.lock);
+  for(;;){
+    // Scan through table looking for exited children.
+    havekids = 0;
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+      if(p->parent != curproc)
+        continue;
+      havekids = 1;
+      if(p->state == ZOMBIE
+         && p->pgdir == curproc->pgdir
+         && p->thread != 0)
+      {
+        // Found one.
+        pid = p->pid;
+        kfree(p->kstack);
+        p->kstack = 0;
+        // Don't free pagedir since it's used by the parent
+        p->pid = 0;
+        p->parent = 0;
+        p->name[0] = 0;
+        p->killed = 0;
+        p->state = UNUSED;
+        release(&ptable.lock);
+
+        *stack = p->thread->stack;
+        kfree((void *) p->thread);
+
+        return pid;
+      }
+    }
+
+    // No point waiting if we don't have any children.
+    if(!havekids || curproc->killed){
+      release(&ptable.lock);
+      return -1;
+    }
+
+    // Wait for children to exit.  (See wakeup1 call in proc_exit.)
+    sleep(curproc, &ptable.lock);  //DOC: wait-sleep
+  }
+}
+

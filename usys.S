@@ -32,3 +32,6 @@ SYSCALL(uptime)
 
 SYSCALL(getcount)
 SYSCALL(v2paddr)
+
+SYSCALL(thread_create)
+SYSCALL(thread_join)

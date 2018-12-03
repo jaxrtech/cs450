@@ -103,8 +103,14 @@ extern int sys_unlink(void);
 extern int sys_wait(void);
 extern int sys_write(void);
 extern int sys_uptime(void);
+
+// mp2
 extern int sys_getcount(void);
 extern int sys_v2paddr(void);
+
+// mp4
+extern int sys_thread_create(void);
+extern int sys_thread_join(void);
 
 static int (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -128,8 +134,14 @@ static int (*syscalls[])(void) = {
 [SYS_link]    sys_link,
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
+
+// mp2
 [SYS_getcount] sys_getcount,
 [SYS_v2paddr] sys_v2paddr,
+
+// mp4
+[SYS_thread_create] sys_thread_create,
+[SYS_thread_join] sys_thread_join
 };
 
 void

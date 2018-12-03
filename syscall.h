@@ -25,4 +25,8 @@
 #define SYS_getcount 22
 #define SYS_v2paddr  23
 
-#define SYS_MAX SYS_v2paddr
+// mp4
+#define SYS_thread_create 24
+#define SYS_thread_join   25
+
+#define SYS_MAX SYS_thread_join
