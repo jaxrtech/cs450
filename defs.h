@@ -120,9 +120,15 @@ void            userinit(void);
 int             wait(void);
 void            wakeup(void*);
 void            yield(void);
-// mp4
+
+// mp4 - threads
 int             thread_create(void (*tmain)(void *), void *stack, void *arg);
 int             thread_join(void **stack);
+
+// mp4 - mutex
+int             mtx_create(int locked);
+int             mtx_lock(int lock_id);
+int             mtx_unlock(int lock_id);
 
 // swtch.S
 void            swtch(struct context**, struct context*);

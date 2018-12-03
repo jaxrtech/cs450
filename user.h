@@ -28,13 +28,18 @@ char* sbrk(int);
 int sleep(int);
 int uptime(void);
 
-// syscalls - mp2
+// mp2
 int getcount(int);
 void* v2paddr(void*);
 
-// syscalls - mp4
+// mp4 - threads
 int thread_create(void (*tmain)(void *), void *stack, void *arg);
 int thread_join(void **stack);
+
+// mp4 - mutex
+int mtx_create(int locked);
+int mtx_lock(int lock_id);
+int mtx_unlock(int lock_id);
 
 // ulib.c
 int stat(const char*, struct stat*);

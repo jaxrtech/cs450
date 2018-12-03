@@ -14,9 +14,19 @@ struct {
   struct proc proc[NPROC];
 } ptable;
 
+// mp4
+struct mutex {
+  int active;
+  struct spinlock lock;
+};
+
+struct mutex kmutex[256];
+int next_mutex_id = 0;
+
 static struct proc *initproc;
 
 int nextpid = 1;
+
 extern void forkret(void);
 extern void trapret(void);
 
@@ -658,3 +668,52 @@ thread_join(void **stack)
   }
 }
 
+
+int
+mtx_create(int locked)
+{
+  int id;
+  struct mutex *mutex;
+
+  id = next_mutex_id;
+  next_mutex_id++;
+
+  mutex = &kmutex[id];
+  memset(mutex, 0, sizeof(*mutex));
+  mutex->active = 1;
+
+  initlock(&mutex->lock, "mutex");
+  return 0;
+}
+
+
+int
+mtx_lock(int lock_id)
+{
+  struct mutex *mutex;
+
+  mutex = &kmutex[lock_id];
+  if (!mutex->active) {
+    cprintf("mutex_lock: invalid mutex\n");
+    return 1;
+  }
+
+  acquire(&mutex->lock);
+  return 0;
+}
+
+
+int
+mtx_unlock(int lock_id)
+{
+  struct mutex *mutex;
+
+  mutex = &kmutex[lock_id];
+  if (!mutex->active) {
+    cprintf("mtx_unlock: invalid mutex\n");
+    return 1;
+  }
+
+  release(&mutex->lock);
+  return 0;
+}

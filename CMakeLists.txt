@@ -27,6 +27,7 @@ add_executable(xv6
         getcount.c
         v2ptest.c
         pctest.c
+        pctest_thread.c
         grep.c
         ide.c
         init.c

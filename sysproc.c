@@ -125,3 +125,42 @@ sys_thread_join(void)
 
   return thread_join(stack);
 }
+
+
+int
+sys_mtx_create(void)
+{
+  int locked;
+
+  if (argint(0, (void *) &locked)) {
+    return -1;
+  }
+
+  return mtx_create(locked);
+}
+
+
+int
+sys_mtx_lock(void)
+{
+  int lock_id;
+
+  if (argint(0, (void *) &lock_id)) {
+    return -1;
+  }
+
+  return mtx_lock(lock_id);
+}
+
+
+int
+sys_mtx_unlock(void)
+{
+  int lock_id;
+
+  if (argint(0, (void *) &lock_id)) {
+    return -1;
+  }
+
+  return mtx_unlock(lock_id);
+}

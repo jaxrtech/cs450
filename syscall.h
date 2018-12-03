@@ -29,4 +29,8 @@
 #define SYS_thread_create 24
 #define SYS_thread_join   25
 
-#define SYS_MAX SYS_thread_join
+#define SYS_mtx_create 26
+#define SYS_mtx_lock   27
+#define SYS_mtx_unlock 28
+
+#define SYS_MAX SYS_mtx_unlock

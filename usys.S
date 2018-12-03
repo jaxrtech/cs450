@@ -35,3 +35,7 @@ SYSCALL(v2paddr)
 
 SYSCALL(thread_create)
 SYSCALL(thread_join)
+
+SYSCALL(mtx_create)
+SYSCALL(mtx_lock)
+SYSCALL(mtx_unlock)
