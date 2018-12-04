@@ -17,6 +17,7 @@ struct {
 // mp4
 struct mutex {
   int active;
+  int locked;
   struct spinlock lock;
 };
 
@@ -329,6 +330,49 @@ wait(void)
   }
 }
 
+void
+sched_debug(void)
+{
+  static int debug = 0;
+  struct proc *p;
+
+  if (++debug % 10000 == 0) {
+    cprintf("scheduler: ");
+    for (p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+      char *str;
+      switch (p->state) {
+        case UNUSED:
+          str = "_";
+          break;
+        case EMBRYO:
+          str = "~";
+          break;
+        case SLEEPING:
+          str = "S";
+          break;
+        case RUNNABLE:
+          str = "r";
+          break;
+        case RUNNING:
+          str = "R";
+          break;
+        case ZOMBIE:
+          str = "Z";
+          break;
+        default:
+          str = "?";
+          break;
+      }
+      cprintf(str);
+      cprintf(" ");
+    }
+    cprintf("\n");
+
+    procdump();
+  }
+}
+
+
 //PAGEBREAK: 42
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
@@ -340,8 +384,18 @@ wait(void)
 void
 scheduler(void)
 {
+  int i;
+  int last;
   struct proc *p;
+  struct proc *lastp;
   struct cpu *c = mycpu();
+
+  lastp = c->proc;
+  if (!(lastp >= c->proc && lastp <= &c->proc[NPROC])) {
+    lastp = c->proc;
+  }
+  last = (int) (NPROC - (&c->proc[NPROC] - lastp));
+
   c->proc = 0;
   
   for(;;){
@@ -350,9 +404,16 @@ scheduler(void)
 
     // Loop over process table looking for process to run.
     acquire(&ptable.lock);
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+
+//    sched_debug();
+
+    for(i = 0; i < NPROC; i++) {
+      p = ptable.proc + ((i + last) % NPROC);
+
       if(p->state != RUNNABLE)
         continue;
+
+//      cprintf("scheduler: %d\n", p - ptable.proc);
 
       // Switch to chosen process.  It is the process's job
       // to release ptable.lock and then reacquire it
@@ -426,6 +487,18 @@ forkret(void)
     iinit(ROOTDEV);
     initlog(ROOTDEV);
   }
+
+  // Return to "caller", actually trapret (see allocproc).
+}
+
+
+// A thread child's very first scheduling by scheduler()
+// will swtch here.  "Return" to user space.
+void
+threadret(void)
+{
+  // Still holding ptable.lock from scheduler.
+  release(&ptable.lock);
 
   // Return to "caller", actually trapret (see allocproc).
 }
@@ -560,7 +633,8 @@ thread_create(void (*tmain)(void *), void *stack, void *arg)
   struct proc *np;
   struct proc *curproc = myproc();
   void *sp;
-//  void *sp;
+
+  cprintf("thread_create(tmain = 0x%p, stack = 0x%p, arg = %p)\n", tmain, stack, arg);
 
   // Allocate a new process (e.g. thread)
   if ((np = allocproc()) == 0) {
@@ -584,10 +658,12 @@ thread_create(void (*tmain)(void *), void *stack, void *arg)
   *np->tf = *curproc->tf;
 
   // Jump to thread main
+  np->context->eip = (uint) threadret;
   np->tf->eip = (uint) tmain;
 
-  // Push first argument on stack (cdecl)
   sp = stack;
+
+  // Push first argument on stack (cdecl)
   sp -= sizeof(arg);
   *(uint *)sp = (uint) arg;
 
@@ -596,6 +672,7 @@ thread_create(void (*tmain)(void *), void *stack, void *arg)
   *(uint *)sp = 0xDEADBEEF;
 
   // Set user allocated stack
+  np->tf->eax = 0;
   np->tf->esp = (uint) sp;
   np->tf->ebp = (uint) (stack - THREAD_STACK_SIZE);
 
@@ -614,6 +691,8 @@ thread_create(void (*tmain)(void *), void *stack, void *arg)
   np->state = RUNNABLE;
   release(&ptable.lock);
 
+  cprintf("thread_create(tmain = 0x%p, stack = 0x%p, arg = %p) DONE [pid = %d]\n", tmain, stack, arg, pid);
+
   return pid;
 }
 
@@ -631,12 +710,12 @@ thread_join(void **stack)
     // Scan through table looking for exited children.
     havekids = 0;
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->parent != curproc)
-        continue;
+      if (p->parent != curproc) continue;
+      if (p->pgdir != curproc->pgdir) continue;
+      if (p->thread == 0) continue;
+
       havekids = 1;
-      if(p->state == ZOMBIE
-         && p->pgdir == curproc->pgdir
-         && p->thread != 0)
+      if(p->state == ZOMBIE)
       {
         // Found one.
         pid = p->pid;
@@ -651,7 +730,7 @@ thread_join(void **stack)
         release(&ptable.lock);
 
         *stack = p->thread->stack;
-        kfree((void *) p->thread);
+//        kfree((void *) p->thread);
 
         return pid;
       }
@@ -681,6 +760,7 @@ mtx_create(int locked)
   mutex = &kmutex[id];
   memset(mutex, 0, sizeof(*mutex));
   mutex->active = 1;
+  mutex->locked = locked;
 
   initlock(&mutex->lock, "mutex");
   return 0;
@@ -690,6 +770,7 @@ mtx_create(int locked)
 int
 mtx_lock(int lock_id)
 {
+  int locked;
   struct mutex *mutex;
 
   mutex = &kmutex[lock_id];
@@ -699,6 +780,15 @@ mtx_lock(int lock_id)
   }
 
   acquire(&mutex->lock);
+  locked = mutex->locked;
+
+  if (locked > 0) {
+    sleep(mutex, &mutex->lock);
+  }
+
+  mutex->locked = 1;
+  release(&mutex->lock);
+
   return 0;
 }
 
@@ -713,6 +803,11 @@ mtx_unlock(int lock_id)
     cprintf("mtx_unlock: invalid mutex\n");
     return 1;
   }
+
+  acquire(&mutex->lock);
+
+  mutex->locked = 0;
+  wakeup(mutex);
 
   release(&mutex->lock);
   return 0;

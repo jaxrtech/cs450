@@ -99,15 +99,15 @@ sys_thread_create(void)
   void *arg;
 
   if (argptr(0, (void *) &tmain, sizeof(tmain)) < 0) {
-    return 10;
+    return -1;
   }
 
-  if (argptr(1, (void *) &stack, sizeof(stack)) < 0) {
-    return 11;
+  if (argint(1, (void *) &stack) < 0) {
+    return -2;
   }
 
   if (argint(2, (void *) &arg) < 0) {
-    return 12;
+    return -3;
   }
 
   return thread_create(tmain, stack, arg);
