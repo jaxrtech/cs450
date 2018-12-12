@@ -53,7 +53,7 @@ bzero(int dev, int bno)
 // Blocks.
 
 // Allocate a zeroed disk block.
-static uint
+static int
 balloc(uint dev)
 {
   int b, bi, m;
@@ -74,7 +74,9 @@ balloc(uint dev)
     }
     brelse(bp);
   }
-  panic("balloc: out of blocks");
+
+  // failed to allocate
+  return -1;
 }
 
 // Free a disk block.
@@ -365,39 +367,117 @@ iunlockput(struct inode *ip)
 //
 // The content (data) associated with each inode is stored
 // in blocks on the disk. The first NDIRECT block numbers
-// are listed in ip->addrs[].  The next NINDIRECT blocks are
+// are listed in ip->addrs[].  The next NINDIRECT_PER_BLOCK blocks are
 // listed in block ip->addrs[NDIRECT].
 
 // Return the disk block address of the nth block in inode ip.
 // If there is no such block, bmap allocates one.
-static uint
-bmap(struct inode *ip, uint bn)
+static int
+bmap(struct inode *ip, uint bnq)
 {
-  uint addr, *a;
+  int addr;
+  uint bn = bnq;
+  uint *indirect_blk;
+  uint skip = 0;
+  uint kaddr;
+  uint kptr;
+  uint kptr_indirect1;
+  uint kptr_indirect2;
   struct buf *bp;
 
-  if(bn < NDIRECT){
-    if((addr = ip->addrs[bn]) == 0)
-      ip->addrs[bn] = addr = balloc(ip->dev);
+  if(bn < NUM_DIRECT_PTRS){
+    if((addr = ip->addrs[bn]) == 0) {
+      addr = balloc(ip->dev);
+      if (addr < 0) {
+        return -1;
+      }
+      ip->addrs[bn] = (uint) addr;
+    }
+
+//    cprintf("bmap: inum = %d, bn = %d |: addr = %d (DIRECT)\n", ip->inum, bnq, addr);
     return addr;
   }
-  bn -= NDIRECT;
 
-  if(bn < NINDIRECT){
-    // Load indirect block, allocating if necessary.
-    if((addr = ip->addrs[NDIRECT]) == 0)
-      ip->addrs[NDIRECT] = addr = balloc(ip->dev);
-    bp = bread(ip->dev, addr);
-    a = (uint*)bp->data;
-    if((addr = a[bn]) == 0){
-      a[bn] = addr = balloc(ip->dev);
+  skip += NUM_DIRECT_PTRS;
+  bn -= NUM_DIRECT_PTRS;
+
+  if(bn < NUM_SINGLE_INDIRECT_BLKS){
+    kaddr = INDIRECT_TO_KADDR(bn);
+    kptr = INDIRECT_TO_BN(bn);
+
+    // Load single indirect block, allocating if necessary.
+    if((addr = ip->addrs[skip + kaddr]) == 0) {
+      if ((addr = balloc(ip->dev)) < 0) {
+        return -1;
+      }
+      ip->addrs[skip + kaddr] = (uint) addr;
+    }
+
+    // addr -> inode of single indirect
+    // Allocates the single indirect block, if necessary.
+    bp = bread(ip->dev, (uint) addr);
+    indirect_blk = (uint*)bp->data;
+    if((addr = indirect_blk[kptr]) == 0){
+      if ((addr = balloc(ip->dev)) < 0) {
+        return -1;
+      }
+      indirect_blk[kptr] = (uint) addr;
       log_write(bp);
     }
     brelse(bp);
+
+//    cprintf("bmap: inum = %d, bn = %d |: addr = %d (SINGLE)\n", ip->inum, bnq, addr);
     return addr;
   }
 
-  panic("bmap: out of range");
+  skip += NUM_SINGLE_INDIRECT_PTRS;
+  bn -= NUM_SINGLE_INDIRECT_BLKS;
+
+  if (bn < NUM_DOUBLE_INDIRECT_BLKS) {
+    kaddr = DINDIRECT_TO_KPTR(bn);
+    kptr_indirect1 = DINDIRECT_TO_INDIRECT1_KPRT(bn);
+    kptr_indirect2 = DINDIRECT_TO_INDIRECT2_KPTR(bn);
+
+    // [ inode | addr[NDIRECT + NSINGLE + bn] ] -> [ indirect | ptr ] -> [ data block ]
+    // If the fist indirection block for the double indirect pointer,
+    // has not been allocated, then do so.
+    if((addr = ip->addrs[skip + kaddr]) == 0) {
+      if ((addr = balloc(ip->dev)) < 0) {
+        return -1;
+      }
+      ip->addrs[skip + kaddr] = (uint) addr;
+    }
+
+    // Load first level of indirection
+    bp = bread(ip->dev, (uint) addr);
+    indirect_blk = (uint*)bp->data;
+    if((addr = indirect_blk[kptr_indirect1]) == 0){
+      if ((addr = balloc(ip->dev)) < 0) {
+        return -1;
+      }
+      indirect_blk[kptr_indirect1] = (uint) addr;
+      log_write(bp);
+    }
+    brelse(bp);
+
+    // Load second level of indirection
+    bp = bread(ip->dev, (uint) addr);
+    indirect_blk = (uint*)bp->data;
+    if((addr = indirect_blk[kptr_indirect2]) == 0){
+      if ((addr = balloc(ip->dev)) < 0) {
+        return -1;
+      }
+      indirect_blk[kptr_indirect2] = (uint) addr;
+      log_write(bp);
+    }
+    brelse(bp);
+
+//    cprintf("bmap: inum = %d, bn = %d |: addr = %d (DOUBLE)\n", ip->inum, bnq, addr);
+    return addr;
+  }
+
+  // fail to map out of range
+  return -1;
 }
 
 // Truncate inode (discard contents).
@@ -408,27 +488,65 @@ bmap(struct inode *ip, uint bn)
 static void
 itrunc(struct inode *ip)
 {
-  int i, j;
-  struct buf *bp;
-  uint *a;
+  int i, j, k;
+  struct buf *bp, *bp_indirect1, *bp_indirect2;
+  uint *a, *a_indirect1, *a_indirect2;
+  uint skip = 0;
+  uint kaddr;
 
-  for(i = 0; i < NDIRECT; i++){
+  for(i = 0; i < NUM_DIRECT_PTRS; i++){
     if(ip->addrs[i]){
       bfree(ip->dev, ip->addrs[i]);
       ip->addrs[i] = 0;
     }
   }
 
-  if(ip->addrs[NDIRECT]){
-    bp = bread(ip->dev, ip->addrs[NDIRECT]);
-    a = (uint*)bp->data;
-    for(j = 0; j < NINDIRECT; j++){
-      if(a[j])
+  skip += NUM_DIRECT_PTRS;
+
+  for (i = 0; i < NUM_SINGLE_INDIRECT_PTRS; i++) {
+    kaddr = skip + i;
+    if (!ip->addrs[kaddr]) continue;
+
+    bp = bread(ip->dev, ip->addrs[kaddr]);
+    a = (uint *) bp->data;
+    for (j = 0; j < NUM_PTRS_PER_BLOCK; j++) {
+      if (a[j]) {
         bfree(ip->dev, a[j]);
+      }
     }
     brelse(bp);
-    bfree(ip->dev, ip->addrs[NDIRECT]);
-    ip->addrs[NDIRECT] = 0;
+
+    bfree(ip->dev, ip->addrs[kaddr]);
+    ip->addrs[kaddr] = 0;
+  }
+
+  skip += NUM_SINGLE_INDIRECT_PTRS;
+
+  for (i = 0; i < NUM_DOUBLE_INDIRECT_BLKS; i++) {
+    kaddr = skip + i;
+    if (!ip->addrs[kaddr]) continue;
+
+    bp_indirect1 = bread(ip->dev, ip->addrs[kaddr]);
+    a_indirect1 = (uint *) bp_indirect1->data;
+    for (j = 0; j < NUM_PTRS_PER_BLOCK; j++) {
+      if (!a_indirect1[j]) break;
+
+      bp_indirect2 = bread(ip->dev, a_indirect1[j]);
+      a_indirect2 = (uint *) bp_indirect2->data;
+
+      for (k = 0; k < NUM_PTRS_PER_BLOCK; k++) {
+        bp = bread(ip->dev, a_indirect2[k]);
+        a = (uint *) bp->data;
+        if (!a[k]) break;
+        bfree(ip->dev, a[k]);
+      }
+
+      bfree(ip->dev, a_indirect2[j]);
+    }
+    brelse(bp_indirect1);
+
+    bfree(ip->dev, ip->addrs[kaddr]);
+    ip->addrs[kaddr] = 0;
   }
 
   ip->size = 0;
@@ -483,6 +601,7 @@ int
 writei(struct inode *ip, char *src, uint off, uint n)
 {
   uint tot, m;
+  int bnq;
   struct buf *bp;
 
   if(ip->type == T_DEV){
@@ -497,7 +616,9 @@ writei(struct inode *ip, char *src, uint off, uint n)
     return -1;
 
   for(tot=0; tot<n; tot+=m, off+=m, src+=m){
-    bp = bread(ip->dev, bmap(ip, off/BSIZE));
+    if ((bnq = bmap(ip, off / BSIZE)) < 0)
+      return -1;
+    bp = bread(ip->dev, (uint) bnq);
     m = min(n - tot, BSIZE - off%BSIZE);
     memmove(bp->data + off%BSIZE, src, m);
     log_write(bp);

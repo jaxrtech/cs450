@@ -256,34 +256,92 @@ void
 iappend(uint inum, void *xp, int n)
 {
   char *p = (char*)xp;
-  uint fbn, off, n1;
+  uint bn, fbn, off, n1;
   struct dinode din;
   char buf[BSIZE];
-  uint indirect[NINDIRECT];
+  uint indirect[NUM_PTRS_PER_BLOCK];
   uint x;
+  uint skip = 0;
+  uint sec;
+  uint kaddr;
+  uint kptr;
+  uint kptr_indirect1;
+  uint kptr_indirect2;
 
   rinode(inum, &din);
   off = xint(din.size);
-  // printf("append inum %d at off %d sz %d\n", inum, off, n);
+//  printf("append inum %d at off %d sz %d\n", inum, off, n);
   while(n > 0){
-    fbn = off / BSIZE;
-    assert(fbn < MAXFILE);
-    if(fbn < NDIRECT){
-      if(xint(din.addrs[fbn]) == 0){
-        din.addrs[fbn] = xint(freeblock++);
+    bn = off / BSIZE;
+    fbn = bn;
+    assert(bn < MAXFILE);
+
+    if(bn < NUM_DIRECT_PTRS){
+      if(xint(din.addrs[bn]) == 0){
+        din.addrs[bn] = xint(freeblock++);
       }
-      x = xint(din.addrs[fbn]);
-    } else {
-      if(xint(din.addrs[NDIRECT]) == 0){
-        din.addrs[NDIRECT] = xint(freeblock++);
-      }
-      rsect(xint(din.addrs[NDIRECT]), (char*)indirect);
-      if(indirect[fbn - NDIRECT] == 0){
-        indirect[fbn - NDIRECT] = xint(freeblock++);
-        wsect(xint(din.addrs[NDIRECT]), (char*)indirect);
-      }
-      x = xint(indirect[fbn-NDIRECT]);
+      x = xint(din.addrs[bn]);
+      goto copy;
     }
+
+    skip += NUM_DIRECT_PTRS;
+    bn -= NUM_DIRECT_PTRS;
+
+    if (bn < NUM_SINGLE_INDIRECT_BLKS) {
+      kaddr = skip + INDIRECT_TO_KADDR(bn);
+      kptr = INDIRECT_TO_BN(bn);
+
+      // din.addrs[kaddr] -> indirect block number
+      if (xint(din.addrs[kaddr]) == 0){
+        din.addrs[kaddr] = xint(freeblock++);
+      }
+
+      sec = xint(din.addrs[kaddr]);
+      rsect(sec, (char*)indirect);
+      if (indirect[kptr] == 0) {
+        indirect[kptr] = xint(freeblock++);
+        wsect(sec, (char*)indirect);
+      }
+      x = xint(indirect[kptr]);
+
+      goto copy;
+    }
+
+    skip += NUM_SINGLE_INDIRECT_PTRS;
+    bn -= NUM_SINGLE_INDIRECT_BLKS;
+
+    if (bn < NUM_DOUBLE_INDIRECT_BLKS) {
+      kaddr = skip + DINDIRECT_TO_KPTR(bn);
+      kptr_indirect1 = DINDIRECT_TO_INDIRECT1_KPRT(bn);
+      kptr_indirect2 = DINDIRECT_TO_INDIRECT2_KPTR(bn);
+
+      // din.addrs[kaddr] -> indirect block number
+      if (xint(din.addrs[kaddr]) == 0){
+        din.addrs[kaddr] = xint(freeblock++);
+      }
+
+      sec = xint(din.addrs[kaddr]);
+      rsect(sec, (char*)indirect);
+      if(indirect[kptr_indirect1] == 0){
+        indirect[kptr_indirect1] = xint(freeblock++);
+        wsect(sec, (char*)indirect);
+      }
+      sec = xint(indirect[kptr_indirect1]);
+
+      rsect(sec, (char*)indirect);
+      if(indirect[kptr_indirect2] == 0){
+        indirect[kptr_indirect2] = xint(freeblock++);
+        wsect(sec, (char*)indirect);
+      }
+      x = xint(indirect[kptr_indirect1]);
+
+      goto copy;
+    }
+
+    perror("iappend: cannot grow larger than MAXFILE\n");
+    exit(1);
+
+  copy:
     n1 = min(n, (fbn + 1) * BSIZE - off);
     rsect(x, buf);
     bcopy(p, buf + off - (fbn * BSIZE), n1);
